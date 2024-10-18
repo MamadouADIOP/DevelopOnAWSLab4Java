@@ -1,0 +1,12 @@
+Command to set environment parameters 
+set env-parms=TABLE_NAME=Notes, MP3_BUCKET_NAME=<MP3BucketName>"
+
+Update lambda configuration
+
+aws lambda update-function-configuration --function-name dictateFunction --environment Variables="{%env-parms%}"
+
+
+Run mvn install
+
+mvn clean install
+aws lambda invoke --cli-binary-format raw-in-base64-out --function-name dictateFunction --payload fileb://event.json response.json

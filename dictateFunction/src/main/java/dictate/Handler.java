@@ -10,12 +10,16 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.polly.PollyAsyncClient;
+import software.amazon.awssdk.services.polly.model.Engine;
+import software.amazon.awssdk.services.polly.model.OutputFormat;
 import software.amazon.awssdk.services.polly.model.SynthesizeSpeechRequest;
+import software.amazon.awssdk.services.polly.model.SynthesizeSpeechResponse;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -32,7 +36,7 @@ public class Handler implements RequestHandler<Map<String, String>, String> {
             .build();
     private static final S3AsyncClient s3client = S3AsyncClient.builder()
             .build();
-    
+
     private static String getNoteText(String tableName, String userName, String noteId) {
         var dbAsyncClient = DynamoDbAsyncClient.builder()
                 .build();
@@ -40,7 +44,7 @@ public class Handler implements RequestHandler<Map<String, String>, String> {
         key.put("UserId", AttributeValue.builder().s(userName).build());
         key.put("NoteId", AttributeValue.builder().n(noteId).build());
         //TODO 1 BEGIN
-        
+        GetItemRequest request = GetItemRequest.builder().tableName(tableName).key(key).build();
         //TODO 1 END
         var queryResponse = dbAsyncClient.getItem(request).join();
         return queryResponse.item().get("Note").s();
@@ -90,7 +94,12 @@ public class Handler implements RequestHandler<Map<String, String>, String> {
             // Calls the Polly synthesize_speech API to convert text to speech
             // Stores the resulting audio in an MP3 file in /tmp
             //TODO 2 BEGIN
-            
+            SynthesizeSpeechRequest synthesizeSpeechRequest = SynthesizeSpeechRequest.builder()
+                    .engine(Engine.NEURAL)
+                    .outputFormat(OutputFormat.MP3)
+                    .voiceId(voice)
+                    .text(noteText).build();
+            SynthesizeSpeechResponse synthesizeSpeechResponse = pollyclient.synthesizeSpeech(synthesizeSpeechRequest, destfile).join();
             //TODO 2 END
 
             var key = userId + "/" + noteId + ".mp3";
@@ -106,7 +115,20 @@ public class Handler implements RequestHandler<Map<String, String>, String> {
 
             // Creates a pre-signed URL for the MP3 file
             // TODO 3 BEGIN
-            
+            try (S3Presigner presigner = S3Presigner.create()) {
+
+                GetObjectRequest objectRequest = GetObjectRequest.builder()
+                        .bucket(bucket)
+                        .key(key)
+                        .build();
+
+                GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                        .signatureDuration(Duration.ofMinutes(5))  // The URL will expire in 5 minutes.
+                        .getObjectRequest(objectRequest)
+                        .build();
+                PresignedGetObjectRequest presignedRequest = presigner.presignGetObject(presignRequest);
+                response = presignedRequest.url().toExternalForm();
+            }
             // TODO 3 END
             logger.info("generated url {}", response);
 
